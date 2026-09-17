@@ -59,3 +59,18 @@ services:
     command: >
       jupyter lab --ip=0.0.0.0 --port=8888 --no-browser
       --allow-root --NotebookApp.token='' --NotebookApp.password=''
+
+  # The submission dashboard: :3000. Reads ./data read-only and proxies the
+  # official API at /api/mgai/*. Falls back to computed context when the API
+  # is slow to start, so it comes up on its own either way.
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports: ["3000:3000"]
+    volumes:
+      - ./data:/work/data:ro
+    environment:
+      - MGAI_URL=http://api:8000
+    depends_on:
+      api: {condition: service_healthy}

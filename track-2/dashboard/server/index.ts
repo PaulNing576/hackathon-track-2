@@ -1,0 +1,88 @@
+// GPU City dashboard server.
+//  - loads ./data (read-only) into an in-memory model
+//  - builds the data-driven Opportunity deck
+//  - serves /api/* + proxies /api/mgai/* to the official API
+//  - serves the built SPA in production
+import path from 'node:path';
+import fs from 'node:fs';
+import express from 'express';
+import { loadModel, resolveDataDir } from './load/data';
+import { buildDeck, type RuleInfo } from './model/deck';
+import { buildRouter, loadContext } from './routes';
+import { FALLBACK_RULES } from './model/catalog';
+import { HttpTransport } from './analysis/transport';
+
+const PORT = Number(process.env.PORT ?? 3000);
+const MGAI_URL = (process.env.MGAI_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const DATA_DIR = resolveDataDir();
+
+async function fetchRules(): Promise<{ rules: RuleInfo[]; source: string }> {
+  try {
+    const r = await fetch(`${MGAI_URL}/v1/policies/rules`, { signal: AbortSignal.timeout(2500) });
+    if (!r.ok) throw new Error(String(r.status));
+    const data = (await r.json()) as { rules: RuleInfo[] };
+    if (Array.isArray(data.rules) && data.rules.length) return { rules: data.rules, source: 'api' };
+    throw new Error('empty catalogue');
+  } catch {
+    return { rules: FALLBACK_RULES as RuleInfo[], source: 'local' };
+  }
+}
+
+async function main() {
+  const t0 = Date.now();
+  console.log(`[gpu-city] loading data from ${DATA_DIR} …`);
+  const model = await loadModel();
+  console.log(`[gpu-city] findings=${model.findings.length} jobs=${model.jobById.size} window=${model.window.start}→${model.window.end} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+
+  const { rules, source } = await fetchRules();
+  console.log(`[gpu-city] rules catalogue from ${source} (${rules.length} rules), API at ${MGAI_URL}`);
+
+  const http = new HttpTransport(MGAI_URL);
+  const priceRes = await (async () => {
+    try {
+      const r = await fetch(`${MGAI_URL}/v1/price-book`, { signal: AbortSignal.timeout(2500) });
+      if (r.ok) return (await r.json()) as { usd_per_gpu_hour: number; usd_per_engineer_hour: number };
+      throw new Error();
+    } catch {
+      return null;
+    }
+  })();
+  const usdPerGpuHour = priceRes?.usd_per_gpu_hour ?? 2.5;
+
+  const deck = buildDeck(model, rules, usdPerGpuHour);
+  console.log(`[gpu-city] deck built: ${deck.length} cards — ${[...new Set(deck.map((c) => c.suit))].join(', ')}`);
+
+  const context = await loadContext(model, MGAI_URL, rules);
+  console.log(`[gpu-city] context from ${context.source}; baseline $${(context.target.baselineUsd / 1000).toFixed(0)}k, 20% target $${(context.target.targetUsd / 1000).toFixed(0)}k`);
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use('/api', buildRouter({
+    model,
+    deck,
+    context,
+    rules,
+    price: { usd_per_gpu_hour: usdPerGpuHour, usd_per_engineer_hour: context.priceBook.usd_per_engineer_hour },
+    transport: { name: 'local' }, // http transport wired where a live API round-trip is needed
+    mgaiUrl: MGAI_URL,
+  }));
+
+  // production static: dist/client (built by vite). In dev the SPA is served by vite.
+  const clientDir = path.resolve(process.cwd(), 'dist', 'client');
+  if (fs.existsSync(path.join(clientDir, 'index.html'))) {
+    app.use(express.static(clientDir));
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(clientDir, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[gpu-city] dashboard on :${PORT} (${((Date.now() - t0) / 1000).toFixed(1)}s total startup)`);
+  });
+}
+
+main().catch((err) => {
+  console.error('[gpu-city] fatal:', err);
+  process.exit(1);
+});

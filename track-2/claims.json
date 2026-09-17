@@ -1,0 +1,313 @@
+{
+ "team": "GPU City",
+ "recoverable_gpu_hours": {
+  "point": 179547,
+  "low": 119104,
+  "high": 239990,
+  "confidence": 0.5,
+  "interval_kind": "scenario",
+  "basis": "Computed by the dashboard's selection/adjustment engine (dashboard/server/model/overlap.ts) with every GPU-hour opportunity selected. Findings are grouped by dedup key (job / node / user), each key's claim is capped at the real allocated hours of what it covers (job's gpu_hours from data/prepped/jobs.parquet; node's and user's totals likewise), then every adjusted claim is re-attributed to the jobs it covers and capped again at the job grain so the total can never exceed the cluster's 594,004 GPU-hour allocation. The adjusted, reconciled total is 447,210 GPU-hours split by impact kind: consumed 254,209, unused_capacity 122,431, lost 64,913, degraded 5,656. Low = sum of kind hours x the conservative end of the recovery factors in dashboard/server/model/catalog.ts (unused_capacity 0.50, lost 0.30, consumed 0.15, degraded 0.05); high = the optimistic end (0.80 / 0.60 / 0.40 / 0.25). The interval is a SCENARIO: its ends are two defensible recovery assumptions, not a statistical spread; the factors themselves are editorial judgment, disclosed on every card in the dashboard. Cross-scope overlap (a user-scope finding covers hours that job-scope findings also claim) is reconciled at the job grain, not summed."
+ },
+ "recoverable_usd": {
+  "point": 448868,
+  "low": 297760,
+  "high": 599977,
+  "confidence": 0.5,
+  "interval_kind": "scenario",
+  "basis": "Same engine and selection as recoverable_gpu_hours, priced at the official price book (usd_per_gpu_hour = 2.50, version 2026-Q3). recoverable_gpu_hours x 2.50 equals this interval by construction. Point is the interval midpoint. Against the baseline spend of $1,485,009.60 the interval is 20.0%-40.4% of spend."
+ },
+ "cancelled_is_waste": false,
+ "cancelled_rationale": "CANCELLED (203,930 GPU-hours, 34.3% of allocated) is treated as deliberate early stopping, not waste: users cancel runs that look wrong, which is good practice (docs/traps.md). The dashboard's efficiency states for teams exclude CANCELLED from failure rates, and no recovery factor is applied to cancelled hours. Counting them as waste would roughly double the headline; we chose the conservative reading and show CANCELLED separately everywhere.",
+ "incident_root_cause": "pvc/scratch-lustre-02",
+ "incident_action_scope": "single_resource",
+ "incident_nodes_to_drain": 0,
+ "incident_degraded_gpu_hours": {
+  "point": 8654,
+  "confidence": 0.8,
+  "basis": "Sum of metadata.impact_gpu_hours over the 121 rules::filesystem-latency-degraded findings (impact_kind = degraded, node scope). Verified live via POST /v1/causal for finding de0755a6-6911-5c23-96ff-9fc8d47ebd1e: root cause pvc/scratch-lustre-02, filesystem p99 latency rose 40.1x, affecting 121 nodes, culprit score 0.88. Degraded means work continued slower, not destroyed, so these hours are not claimed as recoverable savings at face value. Single point estimate on purpose: 'degraded' hours have no defensible spread beyond the recovery scenario, and the honest move is not to invent one. Note: this incident is synthetic (metadata.synthetic = true), injected by the challenge - one incident, not 121 problems."
+ },
+ "incident_confidence": 0.74,
+ "hardware_attributable_failures": 150,
+ "hardware_attributable_confidence": 0.8,
+ "hardware_attributable_rationale": "Counted: (1) 10 jobs that ENDED in NODE_FAIL - the scheduler's own record that a machine died under them (docs/traps.md: 18,587 failures, 10 end in NODE_FAIL); (2) 140 jobs on r216287-n200569 that failed with exit status 135 (SIGBUS) during 2026-02-27 to 2026-03-07, when that machine broke for about a week without ever being marked down. Verified live via POST /v1/causal for the rules::node-hardware-fault finding: 3 different people crashed with SIGBUS on this machine, 140 of 144 jobs failed, and none of the three produces exit status 135 anywhere else (0 occurrences across 1,427 + 1,544 + 946 jobs elsewhere) - causal confidence 1.0, the machine is the culprit. Excluded: the other 21 jobs that hit a node failure at some point but ended differently (6 completed after a requeue, the rest ended in other terminal states) - their final outcome is not attributable to hardware alone; and any fault the scheduler never recorded at all. The two counted groups are disjoint (the SIGBUS machine was never marked down, so none of its failures carry NODE_FAIL).",
+ "card_imbalance_gpu_hours": {
+  "point": 14559,
+  "low": 7280,
+  "high": 11647,
+  "confidence": 0.6,
+  "interval_kind": "scenario",
+  "basis": "Sum of metadata.impact_gpu_hours over the 689 rules::gpu-imbalance findings (job scope, impact_kind unused_capacity): 14,559 GPU-hours held by GPUs inside multi-GPU jobs that never drove them. low/high apply the unused_capacity recovery assumption (50-80%, dashboard/server/model/catalog.ts) - a scenario interval, not a statistical one. 48 teams affected across 200 machines."
+ },
+ "card_imbalance_rationale": "Used the detector's own per-job findings rather than re-pivoting gpus.parquet: the rule reports the idle GPU-hours per job directly (metadata.impact_gpu_hours, impact_kind = unused_capacity). The deck card opp:rules::gpu-imbalance shows $18,199-$29,118 potential at $2.50/GPU-h.",
+ "notes": "Every number in this file comes from the dashboard engine (dashboard/server/) reading the data generated by the official pipeline (make prep, make generate), or from live API calls recorded during preparation. The dashboard and this file share the same adjustment engine, so a judge can reproduce any figure: GET /api/context, GET /api/deck, POST /api/selection/adjust on http://localhost:3000. node_triage is deliberately omitted: the 113 rules::node-elevated-failure-rate findings were not individually triaged.",
+ "claims": [
+  {
+   "id": "baseline-gpu-hours",
+   "claim": "The estate allocated 594,004 GPU-hours over the four-month window.",
+   "value": 594003.8,
+   "unit": "GPU-hours",
+   "scope": "cluster window 2026-02-26 to 2026-06-30",
+   "source": { "type": "fact", "path": "data/prepped/jobs.parquet", "query_or_method": "GET /v1/efficiency/summary rows[0] (allocated); also the sum of jobs.gpu_hours" },
+   "confidence": "HIGH",
+   "notes": "Four-month job sample (MIT SuperCloud TX-GAIA), not the whole cluster."
+  },
+  {
+   "id": "baseline-machines",
+   "claim": "The estate is 225 machines, 2 V100s each.",
+   "value": 225,
+   "unit": "machines",
+   "scope": "cluster",
+   "source": { "type": "fact", "path": "data/synthetic/resources.parquet", "query_or_method": "count of type = k8s:node" },
+   "confidence": "HIGH",
+   "notes": ""
+  },
+  {
+   "id": "baseline-jobs",
+   "claim": "74,849 GPU jobs ran in the window.",
+   "value": 74849,
+   "unit": "jobs",
+   "scope": "cluster window",
+   "source": { "type": "fact", "path": "data/prepped/jobs.parquet", "query_or_method": "row count" },
+   "confidence": "HIGH",
+   "notes": "Restarted jobs appear once, with their attempt history in the attempts columns."
+  },
+  {
+   "id": "baseline-teams",
+   "claim": "195 researchers/teams used the estate.",
+   "value": 195,
+   "unit": "teams",
+   "scope": "cluster",
+   "source": { "type": "fact", "path": "data/synthetic/resources.parquet", "query_or_method": "count of type = k8s:namespace (ns/u-<id>)" },
+   "confidence": "HIGH",
+   "notes": "Identities are hashed and stay that way; the dashboard names no individuals."
+  },
+  {
+   "id": "baseline-spend",
+   "claim": "Baseline GPU spend for the window.",
+   "value": 1485009.6,
+   "unit": "USD",
+   "scope": "cluster window",
+   "source": { "type": "derived", "path": "price book 2026-Q3, usd_per_gpu_hour = 2.50", "query_or_method": "594,003.8 GPU-hours x 2.50 (GET /v1/price-book)" },
+   "confidence": "HIGH",
+   "notes": "Price is the challenge's official book; the hours are a fact."
+  },
+  {
+   "id": "target-20pct",
+   "claim": "The mandate: cut GPU spend 20% without slowing research.",
+   "value": 297002,
+   "unit": "USD",
+   "scope": "quarterly target",
+   "source": { "type": "derived", "path": "track README", "query_or_method": "0.20 x 1,485,009.60" },
+   "confidence": "HIGH",
+   "notes": "Reference target the dashboard's progress area measures the plan against."
+  },
+  {
+   "id": "efficiency-waterfall",
+   "claim": "Of everything allocated, 38.5% actually computed and 17.0% both computed and completed.",
+   "value": { "allocated_gpu_hours": 594003.8, "computed_gpu_hours": 228903.8, "computed_share": 0.3854, "computed_completed_gpu_hours": 100788.8, "computed_completed_share": 0.1697 },
+   "unit": "GPU-hours / share",
+   "scope": "cluster window",
+   "source": { "type": "fact", "path": "GET /v1/efficiency/summary", "query_or_method": "sm_weighted_integration@v1 over dcgm + slurm signals" },
+   "confidence": "HIGH",
+   "notes": "SM utilization is a proxy for useful work; communication-bound jobs understate. The MIT release is a sample and is not meant for fleet utilization estimates."
+  },
+  {
+   "id": "waste-breakdown",
+   "claim": "How the window's GPU-hours ended.",
+   "value": { "COMPLETED": 229040.6, "CANCELLED": 203929.6, "TIMEOUT": 107951.5, "FAILED": 50033.2, "NODE_FAIL": 2027.9, "other_undecoded": 1021.1 },
+   "unit": "GPU-hours",
+   "scope": "cluster window",
+   "source": { "type": "fact", "path": "GET /v1/waste/breakdown", "query_or_method": "jobs.parquet grouped by state_name" },
+   "confidence": "HIGH",
+   "notes": "Deliberately not summed into a single 'waste' number; CANCELLED is the 2x lever and we read it as deliberate."
+  },
+  {
+   "id": "queue-wait",
+   "claim": "Engineers spent 98,214 hours waiting for jobs to start - salary time, not GPU time.",
+   "value": { "total_wait_hours": 98213.75, "monetized_usd": 9330306.65, "median_start_sec": 8, "p95_start_sec": 17757 },
+   "unit": "engineer-hours / USD",
+   "scope": "cluster window",
+   "source": { "type": "fact", "path": "GET /v1/queue/latency", "query_or_method": "wait_sec = time_start - time_submit; monetized at usd_per_engineer_hour = 95" },
+   "confidence": "HIGH",
+   "notes": "The queue tail is a people cost and is shown separately from GPU spend everywhere - it does not move the 20% GPU-spend bar."
+  },
+  {
+   "id": "findings-total",
+   "claim": "The rules catalogue fired 11,979 findings; 23 rules fired and 1 (rules::gpu-pcie-saturated) evaluated clean.",
+   "value": 11979,
+   "unit": "findings",
+   "scope": "cluster window",
+   "source": { "type": "fact", "path": "data/synthetic/findings.json + GET /v1/policies/rules", "detector": "all 24 catalogue rules", "query_or_method": "count" },
+   "confidence": "HIGH",
+   "notes": "Finding count is not economic impact: the 5,044-finding array-task-failure card carries $1-2k potential, while the 95-finding GPU-low-utilization card carries $23k-$61k."
+  },
+  {
+   "id": "deck",
+   "claim": "The opportunity deck has 24 cards in four suits, one per catalogue rule.",
+   "value": { "total": 24, "AVAILABILITY": 9, "COST": 7, "PERFORMANCE": 7, "CONFIG": 1, "gpu_hour_cards": 18 },
+   "unit": "cards",
+   "scope": "dashboard deck",
+   "source": { "type": "derived", "path": "dashboard/server/model/deck.ts", "query_or_method": "buildDeck() over rules catalogue + findings; suits from the findings' own category field" },
+   "confidence": "HIGH",
+   "notes": "Card count is data-driven, not hardcoded: it is whatever the catalogue + findings produce. Suits: spades AVAILABILITY, clubs COST, diamonds PERFORMANCE, hearts CONFIG."
+  },
+  {
+   "id": "potential-total",
+   "claim": "The unchecked (POTENTIAL) sum of the 18 GPU-hour cards.",
+   "value": { "low_usd": 661623, "high_usd": 1298015 },
+   "unit": "USD range",
+   "scope": "all GPU-hour cards",
+   "source": { "type": "derived", "path": "dashboard/server/model/deck.ts + catalog.ts", "query_or_method": "sum over cards of kind-hours x recovery factor x 2.50" },
+   "confidence": "MEDIUM",
+   "notes": "Labelled POTENTIAL on every card because findings overlap: summed raw, this is the number traps.md warns is 157% of the cluster. Shown for ranking, never for planning."
+  },
+  {
+   "id": "adjusted-total",
+   "claim": "Selecting every GPU-hour opportunity yields an ADJUSTED, deduplicated savings range.",
+   "value": { "low_usd": 297760, "high_usd": 599977, "adjusted_gpu_hours": 447210, "share_of_spend": "20.0%-40.4%" },
+   "unit": "USD range / GPU-hours",
+   "scope": "all GPU-hour cards selected",
+   "source": { "type": "derived", "path": "dashboard/server/model/overlap.ts", "query_or_method": "POST /api/selection/adjust with all 18 GPU cards" },
+   "confidence": "MEDIUM",
+   "notes": "Adjusted hours (447,210) sit under the 594,004 cluster ceiling by construction: per-key reality caps plus job-grain reconciliation across scopes. Raw potential double-counts by 52% here; 1,787 jobs are watched by more than one rule. The conservative end of the range ($297,760) just reaches the $297,002 mandate - the cut requires essentially every major opportunity to land at the low end, which is itself the headline risk finding."
+  },
+  {
+   "id": "overlap-method",
+   "claim": "Savings are never summed naively: every finding gets a dedup key and a reality cap, and cross-scope claims are reconciled at the job grain.",
+   "value": {
+    "dedup_keys": "job:<id> for job scope, node:<name> for node scope, user:u-<id> for user scope, cluster:<rule> for cluster scope",
+    "reality_caps": "a job's real gpu_hours from jobs.parquet; a node's total hours; a user's total hours",
+    "reconciliation": "each adjusted claim is attributed to the jobs it covers and capped again at the job's real hours, so the total can never exceed cluster allocation"
+   },
+   "unit": "methodology",
+   "scope": "dashboard engine",
+   "source": { "type": "derived", "path": "dashboard/server/model/overlap.ts + docs/traps.md", "query_or_method": "adjustSelection()" },
+   "confidence": "HIGH",
+   "notes": "Within-scope dedup follows docs/traps.md's own example (job-scope raw 537,666 h -> 298,182 h adjusted, a 45% reduction, consistent with the documented 537,711 -> 311,373)."
+  },
+  {
+   "id": "card-unsuccessful-spend",
+   "claim": "Spend on jobs that never finished is the single largest opportunity.",
+   "value": { "potential_usd": { "low": 126734, "high": 337958 }, "raw_hours": 337958, "kind": "consumed", "scope": "54 user-level findings covering each user's whole four months" },
+   "unit": "USD range / GPU-hours",
+   "scope": "54 teams",
+   "source": { "type": "derived", "path": "data/synthetic/findings.json", "detector": "rules::unsuccessful-gpu-spend", "query_or_method": "sum of metadata.impact_gpu_hours, x consumed recovery 0.15-0.40 x 2.50" },
+   "confidence": "MEDIUM",
+   "notes": "57% of the cluster's unsuccessful hours; includes cancelled hours, so the recovery factor deliberately discounts to 15-40%."
+  },
+  {
+   "id": "card-memory-oversized",
+   "claim": "Memory reserved far beyond use blocks other work: 107,009 GPU-hours.",
+   "value": { "potential_usd": { "low": 133761, "high": 214018 }, "raw_hours": 107009, "kind": "unused_capacity" },
+   "unit": "USD range / GPU-hours",
+   "scope": "108 jobs, 18 teams",
+   "source": { "type": "derived", "path": "data/synthetic/findings.json", "detector": "rules::gpu-memory-oversized", "query_or_method": "sum of metadata.impact_gpu_hours, x 0.50-0.80 x 2.50" },
+   "confidence": "MEDIUM",
+   "notes": "High per-finding hours: ~1,000 GPU-hours each. Overlaps other low-utilization rules, hence ADJUSTED matters."
+  },
+  {
+   "id": "card-wallclock-kill",
+   "claim": "Work killed at the time limit is the largest single bucket of destroyed work.",
+   "value": { "potential_usd": { "low": 80964, "high": 161928 }, "raw_hours": 107952, "kind": "lost" },
+   "unit": "USD range / GPU-hours",
+   "scope": "1,544 findings, 111 teams, 219 machines",
+   "source": { "type": "derived", "path": "data/synthetic/findings.json", "detector": "rules::wallclock-kill", "query_or_method": "sum of metadata.impact_gpu_hours, x lost recovery 0.30-0.60 x 2.50" },
+   "confidence": "HIGH",
+   "notes": "Severity LOW in the raw data - severity is not cost. A time-limit policy fix is high-reversibility."
+  },
+  {
+   "id": "card-idle",
+   "claim": "The three idle-capacity cards (slow cancels, idle sessions, never-computed GPUs) are the plan's workhorse.",
+   "value": { "potential_usd": { "low": 165353, "high": 297319 }, "raw_hours": 189603, "kind": "unused_capacity + consumed" },
+   "unit": "USD range / GPU-hours",
+   "scope": "2,314 findings, 121 teams",
+   "source": { "type": "derived", "path": "data/synthetic/findings.json", "detector": "rules::slow-cancel-of-idle-job + rules::idle-interactive-session + rules::gpu-never-computed", "query_or_method": "per-card sums; selecting the three together adjusts to $113,011-$201,682 because 837 jobs are watched by more than one of them (33% double-count)" },
+   "confidence": "MEDIUM",
+   "notes": "The overlap example shown live in the dashboard: potential $165k-$297k, adjusted $113k-$202k."
+  },
+  {
+   "id": "gpu-imbalance",
+   "claim": "GPUs inside multi-GPU jobs that idled while siblings worked: 14,559 GPU-hours.",
+   "value": { "potential_usd": { "low": 18199, "high": 29118 }, "raw_hours": 14559, "kind": "unused_capacity" },
+   "unit": "USD range / GPU-hours",
+   "scope": "689 findings, 48 teams, 200 machines",
+   "source": { "type": "derived", "path": "data/synthetic/findings.json", "detector": "rules::gpu-imbalance", "query_or_method": "sum of metadata.impact_gpu_hours" },
+   "confidence": "MEDIUM",
+   "notes": "Shape-the-allocation problem, not a hardware problem; high reversibility."
+  },
+  {
+   "id": "silent-machine",
+   "claim": "One machine broke for about a week and the scheduler never noticed: 140 of 144 jobs on it failed.",
+   "value": { "machine": "r216287-n200569", "failed_of_jobs": "140 of 144", "signature": "exit status 135, SIGBUS (bus error)", "causal_confidence": 1.0, "window": "2026-02-27 to 2026-03-07" },
+   "unit": "jobs / confidence",
+   "scope": "one machine",
+   "source": { "type": "fact + causal", "path": "POST /v1/causal for finding e0c7d180-640e-5f03-8bfc-e51cca3df21e", "detector": "rules::node-hardware-fault", "query_or_method": "3 people crashed with SIGBUS here; none of the three produces that status anywhere else (0 occurrences across 3,917 jobs elsewhere)" },
+   "confidence": "HIGH",
+   "notes": "Counted in hardware_attributable_failures as 140 failed jobs. The scheduler's silence is the insight: hardware attribution needs cross-user exit-code patterns, not just NODE_FAIL records."
+  },
+  {
+   "id": "storage-incident",
+   "claim": "One shared-volume incident slowed 121 machines at once - one problem, not 121.",
+   "value": { "root_cause": "pvc/scratch-lustre-02", "affected_nodes": 121, "p99_latency_rise": "40.1x", "culprit_score": 0.88, "degraded_gpu_hours": 8654 },
+   "unit": "resource / nodes / hours",
+   "scope": "fleet-wide window",
+   "source": { "type": "causal", "path": "POST /v1/causal for finding de0755a6-6911-5c23-96ff-9fc8d47ebd1e", "detector": "rules::filesystem-latency-degraded", "query_or_method": "causal analysis resolves the 121 findings to the shared volume; nodes score 0.31 each - spread, not concentrated" },
+   "confidence": "HIGH",
+   "notes": "Synthetic incident injected by the challenge (metadata.synthetic = true) - the source telemetry has no storage records. Still teaches the pattern: correlated findings resolve to one cause."
+  },
+  {
+   "id": "hardware-failures-total",
+   "claim": "Best estimate of failed jobs genuinely caused by faulty hardware: 150.",
+   "value": 150,
+   "unit": "failed jobs",
+   "scope": "cluster window",
+   "source": { "type": "derived", "path": "docs/traps.md + /v1/causal", "query_or_method": "10 jobs ending NODE_FAIL (scheduler-recorded) + 140 SIGBUS jobs on r216287-n200569 (causal confidence 1.0). Disjoint groups; excluded: 21 jobs that hit node failure but ended differently, and anything unrecorded" },
+   "confidence": "MEDIUM",
+   "notes": "Attributing every failure to infrastructure is the one clearly wrong answer (docs/submission.md); this count says what is counted and what is not."
+  },
+  {
+   "id": "gpu-city-states",
+   "claim": "The estate in one picture: 85 teams run underused capacity, 69 are failure-heavy, 22 mixed, 19 healthy.",
+   "value": { "underused": 85, "failure_heavy": 69, "mixed": 22, "healthy": 19 },
+   "unit": "teams",
+   "scope": "195 teams",
+   "source": { "type": "derived", "path": "dashboard/server/model/teams.ts", "query_or_method": "per-team: GPU-hour-weighted utilization (sm_util_avg) and failure share of hours excluding CANCELLED; underused = util < 25%; failure-heavy = failed hours >= 50 and >= 50% of non-cancelled hours; healthy = util >= 50% and failure share < 20%" },
+   "confidence": "MEDIUM",
+   "notes": "Height = GPU usage, color = efficiency state. Hover reveals jobs, hours, dollars, utilization, open findings. Selection highlights affected teams' buildings."
+  },
+  {
+   "id": "queue-non-gpu",
+   "claim": "Queue-wait opportunities are engineer-hours, not GPU-hours, and never enter the GPU-spend progress bar.",
+   "value": { "queue_starvation_engineer_hours": 64209, "peak_weekday_engineer_hours": 16981, "p95_slo_weeks_in_breach": 8 },
+   "unit": "engineer-hours / weeks",
+   "scope": "window",
+   "source": { "type": "fact", "path": "data/synthetic/findings.json", "detector": "rules::queue-starvation, rules::queue-weekly-peak, rules::queue-wait-p95-slo", "query_or_method": "sums of metadata.queue_hours / queue_hours_on_peak; count of weekly windows" },
+   "confidence": "HIGH",
+   "notes": "Real money on a different budget line: the dashboard shows them beside the plan, never inside it."
+  },
+  {
+   "id": "recovery-factors",
+   "claim": "The recovery assumptions applied to each kind of hour.",
+   "value": { "unused_capacity": "0.50-0.80", "lost": "0.30-0.60", "consumed": "0.15-0.40", "degraded": "0.05-0.25" },
+   "unit": "recoverable share",
+   "scope": "dashboard engine",
+   "source": { "type": "judgment", "path": "dashboard/server/model/catalog.ts", "query_or_method": "editorial per-kind factors, disclosed on every card as 'recovery assumption'" },
+   "confidence": "LOW",
+   "notes": "These are MODEL ASSUMPTIONS, not empirical facts. They are the calibration to tune: an hour never computed on is more recoverable than an hour destroyed. The wide ranges are the honesty - the truth is inside the interval, not the point."
+  },
+  {
+   "id": "top-teams",
+   "claim": "The three largest consumers of GPU-hours are also the estate's biggest open finding holders.",
+   "value": [
+    { "team": "u-39537979185", "jobs": 122, "gpu_hours": 45878, "completed_share": 0.11, "utilization_pct": 81, "open_findings": 86 },
+    { "team": "u-53407250664", "jobs": 42, "gpu_hours": 40357, "completed_share": 0.0, "utilization_pct": 39, "open_findings": 46 },
+    { "team": "u-27617141424", "jobs": 1210, "gpu_hours": 38785, "completed_share": 0.34, "utilization_pct": 28, "open_findings": 341 }
+   ],
+   "unit": "teams",
+   "scope": "195 teams",
+   "source": { "type": "derived", "path": "GET /api/city/teams", "query_or_method": "jobs.parquet rolled per id_user, findings joined by owner/job/node" },
+   "confidence": "HIGH",
+   "notes": "Identities stay hashed - the dashboard ranks capacity, not people (docs/traps.md)."
+  }
+ ]
+}

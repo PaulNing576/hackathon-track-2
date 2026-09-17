@@ -59,6 +59,55 @@ export function adjustSelection(
     }
   }
 
+  // ---- cross-scope reconciliation at the job grain ----
+  // Within a scope the dedup keys share denominators, but ACROSS scopes they
+  // do not: a node-scope finding's capped hours include the same physical
+  // job hours a job-scope finding already claimed, and a user-scope finding
+  // overlaps every job-scope finding underneath it (docs/traps.md). To keep
+  // the total honest, attribute every adjusted claim to the jobs it covers,
+  // then cap each job at its real allocated hours. The result can never
+  // exceed the cluster's own allocation.
+  const jobClaim = new Map<number, number>();
+  let arrayAdj = 0;
+  for (const [key, rs] of byKey) {
+    const raw = rs.reduce((s, r) => s + r.hours, 0);
+    const cap = model.caps.get(key);
+    const adj = cap != null ? Math.min(raw, cap) : raw;
+    const target = key.slice(0, key.indexOf(':'));
+    if (target === 'job') {
+      const jobId = Number(key.slice(4));
+      if (Number.isFinite(jobId)) jobClaim.set(jobId, (jobClaim.get(jobId) ?? 0) + adj);
+      else arrayAdj += adj;
+    } else if (target === 'node') {
+      const jobs = model.jobsByNode.get(key.slice(5));
+      const total = (jobs ?? []).reduce((s, j) => s + j.gpu_hours, 0);
+      if (jobs && total > 0) for (const j of jobs) jobClaim.set(j.id_job, (jobClaim.get(j.id_job) ?? 0) + adj * (j.gpu_hours / total));
+      else arrayAdj += adj;
+    } else if (target === 'user') {
+      const uid = Number(key.slice(5).replace(/^u-/, ''));
+      const jobs = Number.isFinite(uid) ? model.jobsByUser.get(uid) : undefined;
+      const total = (jobs ?? []).reduce((s, j) => s + j.gpu_hours, 0);
+      if (jobs && total > 0) for (const j of jobs) jobClaim.set(j.id_job, (jobClaim.get(j.id_job) ?? 0) + adj * (j.gpu_hours / total));
+      else arrayAdj += adj;
+    } else {
+      arrayAdj += adj;
+    }
+  }
+  const jobGrain = (() => {
+    let sum = arrayAdj;
+    for (const [jobId, claim] of jobClaim) {
+      const jcap = model.jobById.get(jobId)?.gpu_hours ?? claim;
+      sum += Math.min(claim, jcap);
+    }
+    return sum;
+  })();
+
+  // the job-grain total is the reconciled number; everything downstream
+  // (savings ranges, kind mix, overlap ratio) scales to it
+  const scale = adjustedHours > 0 ? jobGrain / adjustedHours : 1;
+  adjustedHours = jobGrain;
+  for (const [k, v] of kindAdj) kindAdj.set(k, v * scale);
+
   const kindMix: KindMix[] = [...kindAdj.entries()]
     .map(([kind, hours]) => ({ kind, gpuHours: Math.round(hours), share: adjustedHours ? hours / adjustedHours : 0 }))
     .sort((a, b) => b.gpuHours - a.gpuHours);

@@ -1,0 +1,36 @@
+{
+  "name": "gpu-city-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "cross-env DATA_DIR=../data MGAI_URL=http://localhost:8000 tsx watch server/index.ts",
+    "dev:web": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist/server/index.cjs",
+    "start": "node dist/server/index.cjs"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "hyparquet": "^1.31.0",
+    "hyparquet-compressors": "^1.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

@@ -25,6 +25,11 @@ export interface CardRisk {
 export interface Opportunity {
   id: string; // "opp:<detectorId>" — derived from the rules catalogue, never hardcoded
   detectorId: string;
+  /** Additive, optional: every detector a merged card covers (Decision
+   *  Engine cards can merge several detectors into one business category).
+   *  `detectorId` above stays the first one for back-compat; routes that
+   *  need full evidence coverage should prefer this when present. */
+  detectorIds?: string[];
   title: string; // business-friendly name
   suit: Suit; // from the findings' own category field
   summary: string; // one-sentence business framing
@@ -63,6 +68,13 @@ export interface SelectionAdjustment {
   risk: { level: Level; reasons: string[] };
   costOfBeingWrong: { text: string; capacityGpuHours: number; capacityUsd: number };
   cards: { id: string; title: string; suit: Suit; potential: Range | null; risk: CardRisk }[];
+  /** Additive, optional: the Decision Engine's own 3-way target status and
+   *  range-preserving coverage fraction. Not read by any current component
+   *  (the existing boolean `reached` flag stays the visual source), but
+   *  available to anything that wants the fuller classification. */
+  status?: 'NOT_REACHED' | 'POSSIBLY_REACHED' | 'DEFINITELY_REACHED';
+  coverageLow?: number;
+  coverageHigh?: number;
 }
 
 export interface TeamBuilding {

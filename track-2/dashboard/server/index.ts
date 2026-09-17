@@ -6,11 +6,13 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import express from 'express';
-import { loadModel, resolveDataDir } from './load/data';
+import { loadModel, resolveDataDir, type LoadedModel } from './load/data';
 import { buildDeck, type RuleInfo } from './model/deck';
 import { buildRouter, loadContext } from './routes';
 import { FALLBACK_RULES } from './model/catalog';
 import { HttpTransport } from './analysis/transport';
+import { DECISION_ENGINE_URL, cardToOpportunity, decisionEngineClient } from './decisionEngine';
+import type { Opportunity } from '../shared/types';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MGAI_URL = (process.env.MGAI_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -25,6 +27,27 @@ async function fetchRules(): Promise<{ rules: RuleInfo[]; source: string }> {
     throw new Error('empty catalogue');
   } catch {
     return { rules: FALLBACK_RULES as RuleInfo[], source: 'local' };
+  }
+}
+
+// Same resilience pattern as fetchRules() above: try the Decision Engine
+// service first (the real, validated 9-card dataset — see
+// track-2/decision_engine/README.md), fall back to the locally-built
+// 23-card deck (server/model/deck.ts, untouched) if it's unreachable so the
+// dashboard still boots. Card data, selection math, risk and combination
+// candidates only come from the Decision Engine when this succeeds.
+async function fetchDeck(
+  model: LoadedModel,
+  rules: RuleInfo[],
+  usdPerGpuHour: number,
+): Promise<{ deck: Opportunity[]; source: 'decision-engine' | 'fallback' }> {
+  try {
+    const { cards } = await decisionEngineClient.cards();
+    if (!cards.length) throw new Error('empty cards');
+    return { deck: cards.map((c) => cardToOpportunity(c, model)), source: 'decision-engine' };
+  } catch (err) {
+    console.warn(`[gpu-city] Decision Engine unreachable at ${DECISION_ENGINE_URL} (${String(err)}) — falling back to the local deck`);
+    return { deck: buildDeck(model, rules, usdPerGpuHour), source: 'fallback' };
   }
 }
 
@@ -49,11 +72,19 @@ async function main() {
   })();
   const usdPerGpuHour = priceRes?.usd_per_gpu_hour ?? 2.5;
 
-  const deck = buildDeck(model, rules, usdPerGpuHour);
-  console.log(`[gpu-city] deck built: ${deck.length} cards — ${[...new Set(deck.map((c) => c.suit))].join(', ')}`);
+  const { deck, source: deckSource } = await fetchDeck(model, rules, usdPerGpuHour);
+  console.log(`[gpu-city] deck: ${deck.length} cards from ${deckSource} — ${[...new Set(deck.map((c) => c.suit))].join(', ')}`);
 
   const context = await loadContext(model, MGAI_URL, rules);
   console.log(`[gpu-city] context from ${context.source}; baseline $${(context.target.baselineUsd / 1000).toFixed(0)}k, 20% target $${(context.target.targetUsd / 1000).toFixed(0)}k`);
+
+  // Same 20% target the UI already shows (context.target), expressed in
+  // GPU-hours — the unit the Decision Engine's Progress/Combination Engines
+  // work in. One target, shown two ways, not two separately-computed targets.
+  const targetGpuHours = context.target.baselineGpuHours * context.target.targetShare;
+  if (deckSource === 'decision-engine') {
+    console.log(`[gpu-city] Decision Engine connected at ${DECISION_ENGINE_URL} — target ${targetGpuHours.toFixed(1)} GPU-hours`);
+  }
 
   const app = express();
   app.use(express.json({ limit: '1mb' }));
@@ -65,6 +96,8 @@ async function main() {
     price: { usd_per_gpu_hour: usdPerGpuHour, usd_per_engineer_hour: context.priceBook.usd_per_engineer_hour },
     transport: { name: 'local' }, // http transport wired where a live API round-trip is needed
     mgaiUrl: MGAI_URL,
+    deckSource,
+    targetGpuHours,
   }));
 
   // production static: dist/client (built by vite). In dev the SPA is served by vite.

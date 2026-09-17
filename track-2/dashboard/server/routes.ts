@@ -9,6 +9,7 @@ import { adjustSelection } from './model/overlap';
 import { buildTeams } from './model/teams';
 import { DEFAULT_PRICE_BOOK } from './model/catalog';
 import type { HttpTransport } from './analysis/transport';
+import { adjustResponseToSelectionAdjustment, decisionEngineClient } from './decisionEngine';
 
 export interface AppServices {
   model: LoadedModel;
@@ -18,6 +19,17 @@ export interface AppServices {
   price: { usd_per_gpu_hour: number; usd_per_engineer_hour: number };
   transport: { name: string };
   mgaiUrl: string;
+  /** 'decision-engine' when track-2/decision_engine/service.py answered at
+   *  startup; 'fallback' when it was unreachable and `deck` was built
+   *  locally instead (see server/index.ts). Selection math, risk,
+   *  combinations and Copilot facts are only sourced from the Decision
+   *  Engine when this is 'decision-engine' — see routes below. */
+  deckSource: 'decision-engine' | 'fallback';
+  /** GPU-hours target (20% of baseline) — computed once in index.ts from
+   *  the same context.target the rest of the dashboard already shows, so
+   *  the Decision Engine is evaluated against the identical target the UI
+   *  displays, not a separately hardcoded number. */
+  targetGpuHours: number;
 }
 
 export function buildRouter(s: AppServices): Router {
@@ -31,6 +43,7 @@ export function buildRouter(s: AppServices): Router {
       baselineGpuHours: s.context ? s.context.target.baselineGpuHours : null,
       mgai: s.mgaiUrl,
       transport: s.transport.name,
+      decisionEngine: { source: s.deckSource, targetGpuHours: s.targetGpuHours },
     });
   });
 
@@ -46,11 +59,65 @@ export function buildRouter(s: AppServices): Router {
     });
   });
 
-  router.post('/selection/adjust', (req: Request, res: Response) => {
+  router.post('/selection/adjust', async (req: Request, res: Response) => {
     const cardIds: string[] = Array.isArray(req.body?.cardIds) ? req.body.cardIds.map(String) : [];
+
+    if (s.deckSource === 'decision-engine') {
+      try {
+        const resp = await decisionEngineClient.adjust(cardIds, s.targetGpuHours);
+        res.json(adjustResponseToSelectionAdjustment(resp, s.model, s.price.usd_per_gpu_hour));
+      } catch (err) {
+        res.status(502).json({ error: 'decision engine unreachable', detail: String(err) });
+      }
+      return;
+    }
+
+    // Fallback path only: Decision Engine was unreachable at startup, so the
+    // locally-built 23-card deck and its own overlap/risk model (untouched,
+    // see server/model/overlap.ts) compute this instead.
     const queueTotal = s.context.queue?.totalWaitHours ?? null;
     const adj: SelectionAdjustment = adjustSelection(s.model, s.deck, cardIds, s.price.usd_per_gpu_hour, queueTotal);
     res.json(adj);
+  });
+
+  // Combination candidates: Pareto-style groups from the Decision Engine
+  // (definitely/possibly reach the target, closest-below by low/high bound,
+  // fewest-interventions) — no equivalent exists in the fallback model, so
+  // this route requires the Decision Engine to be reachable.
+  router.get('/combinations', async (req: Request, res: Response) => {
+    if (s.deckSource !== 'decision-engine') {
+      res.status(503).json({ error: 'combination candidates require the Decision Engine service, which is not currently reachable' });
+      return;
+    }
+    const includeSynthetic = req.query.includeSynthetic === 'true';
+    try {
+      const report = await decisionEngineClient.combinations(s.targetGpuHours, includeSynthetic);
+      res.json(report);
+    } catch (err) {
+      res.status(502).json({ error: 'decision engine unreachable', detail: String(err) });
+    }
+  });
+
+  // Copilot recommendation facts, straight from the Decision Engine's own
+  // deterministic explainer (decision_engine/copilot.py) — plain-language
+  // text built only from Progress/Combination Engine output, never a new
+  // number. Additive: the existing client-side Copilot panel (src/components/
+  // Copilot.tsx, untouched) already gets Decision-Engine-sourced facts
+  // through the /selection/adjust response above; this route exposes the
+  // engine's own narrative directly for anything that wants it.
+  router.post('/copilot', async (req: Request, res: Response) => {
+    if (s.deckSource !== 'decision-engine') {
+      res.status(503).json({ error: 'Copilot recommendation facts require the Decision Engine service, which is not currently reachable' });
+      return;
+    }
+    const cardIds: string[] = Array.isArray(req.body?.cardIds) ? req.body.cardIds.map(String) : [];
+    const includeSynthetic = Boolean(req.body?.includeSyntheticRecommendations);
+    try {
+      const resp = await decisionEngineClient.copilot(cardIds, s.targetGpuHours, includeSynthetic);
+      res.json(resp);
+    } catch (err) {
+      res.status(502).json({ error: 'decision engine unreachable', detail: String(err) });
+    }
   });
 
   router.get('/city/teams', (_req, res) => {
@@ -65,8 +132,12 @@ export function buildRouter(s: AppServices): Router {
       res.status(404).json({ error: 'card not found' });
       return;
     }
+    // Decision Engine cards can merge several detectors into one business
+    // category (card.detectorIds); fall back to the single detectorId for
+    // the locally-built fallback deck, where every card has exactly one.
+    const detectorIds = new Set(card.detectorIds && card.detectorIds.length ? card.detectorIds : [card.detectorId]);
     const rows: EvidenceRow[] = s.model.resolved
-      .filter((r) => r.finding.detectorId === card.detectorId && r.hours > 0)
+      .filter((r) => detectorIds.has(r.finding.detectorId) && r.hours > 0)
       .sort((a, b) => b.hours - a.hours)
       .slice(0, 60)
       .map((r) => ({

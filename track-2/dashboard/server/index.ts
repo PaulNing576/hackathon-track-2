@@ -10,7 +10,7 @@ import { loadModel, resolveDataDir } from './load/data';
 import { buildDeck, type RuleInfo } from './model/deck';
 import { buildRouter, loadContext } from './routes';
 import { FALLBACK_RULES } from './model/catalog';
-import { HttpTransport } from './analysis/transport';
+import { HttpTransport, LocalTransport, McpTransport, type AnalysisTransport } from './analysis/transport';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MGAI_URL = (process.env.MGAI_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -37,7 +37,13 @@ async function main() {
   const { rules, source } = await fetchRules();
   console.log(`[gpu-city] rules catalogue from ${source} (${rules.length} rules), API at ${MGAI_URL}`);
 
-  const http = new HttpTransport(MGAI_URL);
+  const analysisMode = process.env.ANALYSIS_TRANSPORT ?? 'http';
+  const transport: AnalysisTransport = analysisMode === 'local'
+    ? new LocalTransport(model)
+    : analysisMode === 'mcp'
+      ? new McpTransport(process.env.MCP_URL ?? 'http://localhost:9000/mcp')
+      : new HttpTransport(MGAI_URL);
+  console.log(`[gpu-city] analysis transport=${transport.name}`);
   const priceRes = await (async () => {
     try {
       const r = await fetch(`${MGAI_URL}/v1/price-book`, { signal: AbortSignal.timeout(2500) });
@@ -63,7 +69,7 @@ async function main() {
     context,
     rules,
     price: { usd_per_gpu_hour: usdPerGpuHour, usd_per_engineer_hour: context.priceBook.usd_per_engineer_hour },
-    transport: { name: 'local' }, // http transport wired where a live API round-trip is needed
+    transport,
     mgaiUrl: MGAI_URL,
   }));
 

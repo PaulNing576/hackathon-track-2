@@ -28,5 +28,16 @@ reversibility. All of it is editorial and disclosed in the UI; tune it there.
 
 ## Copilot transports
 
-`server/analysis/transport.ts` — `local` (default), `http`, and a documented
-`mcp` slot that would drive `mcp_layer/server.py` with the MCP SDK.
+`server/analysis/transport.ts` supports `http` (default), deterministic `local`,
+and MCP Streamable HTTP. To exercise the MCP path, start the curated server from
+`track-2/` and launch the dashboard with the matching endpoint:
+
+```bash
+PYTHONPATH=. uv run --python 3.12 --with-requirements requirements.lock.txt --with fastmcp \
+  fastmcp run mcp_layer/server.py:mcp --transport http --port 9000
+ANALYSIS_TRANSPORT=mcp MCP_URL=http://localhost:9000/mcp npm run dev
+```
+
+Structured AI evidence is available at `GET /api/analysis/findings`; its public
+JSON Schema is served by `GET /api/analysis/schema`. Every row says whether it is
+a fact, a causal judgment validated through API/MCP, or an unvalidated judgment.

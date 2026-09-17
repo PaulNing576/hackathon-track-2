@@ -30,17 +30,20 @@ export function fmtMoneyExact(n: number): string {
   return `$${Math.round(n).toLocaleString('en-US')}`;
 }
 
+// Casino-table palette: black suits (spades/clubs) render in warm ivory/gold
+// against the dark felt; red suits (hearts/diamonds) in deep casino red —
+// glyphs and labels (the actual suit-assignment logic) are unchanged.
 export const SUIT_META: Record<Suit, { glyph: string; label: string; color: string; tint: string }> = {
-  AVAILABILITY: { glyph: '♠', label: 'AVAILABILITY', color: '#1f3a5f', tint: '#eef1f6' },
-  COST: { glyph: '♣', label: 'COST', color: '#3d5c3a', tint: '#eef2ec' },
-  PERFORMANCE: { glyph: '♦', label: 'PERFORMANCE', color: '#8a6d1f', tint: '#f7f2e3' },
-  CONFIG: { glyph: '♥', label: 'CONFIG', color: '#8f3a32', tint: '#f7ecea' },
+  AVAILABILITY: { glyph: '♠', label: 'AVAILABILITY', color: '#d9c9a3', tint: 'rgba(217, 201, 163, 0.12)' },
+  COST: { glyph: '♣', label: 'COST', color: '#c9a24d', tint: 'rgba(201, 162, 77, 0.12)' },
+  PERFORMANCE: { glyph: '♦', label: 'PERFORMANCE', color: '#c1495a', tint: 'rgba(193, 73, 90, 0.14)' },
+  CONFIG: { glyph: '♥', label: 'CONFIG', color: '#b3323f', tint: 'rgba(179, 50, 63, 0.14)' },
 };
 
 export const RISK_COLORS: Record<string, { color: string; tint: string }> = {
-  LOW: { color: '#2e6b4f', tint: '#e9f1ec' },
-  MEDIUM: { color: '#a06a1e', tint: '#f7efe2' },
-  HIGH: { color: '#9c3b2e', tint: '#f7e9e7' },
+  LOW: { color: '#5fa37c', tint: 'rgba(95, 163, 124, 0.14)' },
+  MEDIUM: { color: '#d1a13a', tint: 'rgba(209, 161, 58, 0.14)' },
+  HIGH: { color: '#c9424f', tint: 'rgba(201, 66, 79, 0.18)' },
 };
 
 export const KIND_LABELS: Record<string, string> = {

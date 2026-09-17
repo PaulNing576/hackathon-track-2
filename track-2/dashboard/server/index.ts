@@ -94,6 +94,19 @@ async function main() {
 
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+
+  // 3D city skyline (huiyuan-city): a self-contained static page (canvas
+  // rendering + a baked-in data snapshot from track-2/skyline/build.py,
+  // both untouched) served from the same origin as the rest of the
+  // dashboard rather than as a separate, disconnected demo. Embedded via
+  // src/components/CitySkyline3D.tsx.
+  const skylineDir = path.resolve(process.cwd(), '..', 'skyline');
+  if (fs.existsSync(path.join(skylineDir, 'index.html'))) {
+    app.use('/city/skyline', express.static(skylineDir));
+  } else {
+    console.warn(`[gpu-city] skyline assets not found at ${skylineDir} -- /city/skyline will 404`);
+  }
+
   app.use('/api', buildRouter({
     model,
     deck,

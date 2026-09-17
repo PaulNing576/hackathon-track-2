@@ -1,21 +1,37 @@
-// Q3: What does it cost if we are wrong? Persistent left panel — aggregate
-// risk of the selection, with plain-language reasons. Levels, never scores.
+// What you're betting. Aggregate risk of the current hand, straight from
+// the Decision Engine's own result (adjust.risk) — no new calculation here,
+// only presentation. The panel's border/glow intensity reacts to the same
+// LOW/MEDIUM/HIGH level already computed server-side.
 import type { SelectionAdjustment } from '../../shared/types';
-import { RISK_COLORS, fmtHours, fmtMoneyExact } from '../../shared/format';
+import { RISK_COLORS, fmtHours, fmtInt, fmtMoneyExact } from '../../shared/format';
 
 export function RiskPanel({ adjust }: { adjust: SelectionAdjustment | null }) {
   const risk = adjust?.risk ?? { level: 'LOW' as const, reasons: ['No cards selected — nothing at risk yet.'] };
   const c = RISK_COLORS[risk.level];
+  const levelClass = `risk-${risk.level.toLowerCase()}`;
 
   return (
-    <aside className="panel risk-panel" aria-label="Risk panel">
-      <div className="section-label">3 · What it costs if we are wrong</div>
-      <div className="risk-level" style={{ borderColor: c.color, background: c.tint }}>
-        <span className="risk-dot" style={{ background: c.color }} />
+    <aside className={`panel risk-panel ${levelClass}`} aria-label="Risk zone">
+      <div className="risk-eyebrow">What you're betting</div>
+      <div className="risk-level">
+        <span className="risk-dot" style={{ background: c.color, boxShadow: `0 0 8px ${c.color}` }} />
         <span className="risk-word" style={{ color: c.color }}>
-          {risk.level} risk
+          {risk.level}
         </span>
       </div>
+
+      {adjust && (adjust.affectedUsers > 0 || adjust.affectedNodes > 0) && (
+        <div className="risk-exposure">
+          <div className="risk-exposure-item">
+            <div className="risk-exposure-num">{fmtInt(adjust.affectedUsers)}</div>
+            <div className="risk-exposure-label">teams touched</div>
+          </div>
+          <div className="risk-exposure-item">
+            <div className="risk-exposure-num">{fmtInt(adjust.affectedNodes)}</div>
+            <div className="risk-exposure-label">machines touched</div>
+          </div>
+        </div>
+      )}
 
       <ul className="risk-reasons">
         {risk.reasons.map((r, i) => (
@@ -55,7 +71,7 @@ export function RiskPanel({ adjust }: { adjust: SelectionAdjustment | null }) {
       )}
 
       <div className="risk-foot">
-        {adjust ? `${adjust.affectedUsers} teams · ${adjust.affectedNodes} machines touched` : 'Savings and risk are judged together — the range is the honesty, the level is the warning.'}
+        {adjust ? 'operational exposure of the current hand' : 'savings are the reward; risk is the bet'}
       </div>
     </aside>
   );

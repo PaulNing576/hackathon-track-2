@@ -21,6 +21,14 @@ export function FlipCard({
 }) {
   const suit = SUIT_META[card.suit];
   const risk = RISK_COLORS[card.risk.level];
+  const rank = card.suit.slice(0, 2); // e.g. AVAILABILITY -> "AV" -- a compact index, not a fabricated value
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onFlip();
+    }
+  };
 
   return (
     <div
@@ -29,22 +37,30 @@ export function FlipCard({
     >
       <div className="flip-inner">
         {/* ---------------- FRONT ---------------- */}
-        <div className="face front" onClick={onFlip}>
+        <div
+          className="face front"
+          onClick={onFlip}
+          onKeyDown={onKey}
+          role="button"
+          tabIndex={0}
+          aria-label={`${card.title}, ${suit.label} suit. Press Enter to flip for evidence.`}
+        >
           <div className="front-top">
-            <span className="suit-glyph" style={{ color: suit.color }}>
-              {suit.glyph}
+            <span className="card-corner">
+              <span className="corner-glyph" style={{ color: suit.color }}>
+                {suit.glyph}
+              </span>
+              <span className="corner-rank">{rank}</span>
             </span>
-            <span className="suit-label" style={{ color: suit.color }}>
-              {suit.label}
-            </span>
-            {selected && <span className="selected-check">✓ in plan</span>}
+            <span className="suit-label">{suit.label}</span>
+            {selected && <span className="selected-check">IN HAND</span>}
           </div>
           <div className="card-title">{card.title}</div>
           <div className="card-potential">
             {card.potential ? (
               <>
                 <span className="potential-range">{fmtRange(card.potential)}</span>
-                <span className="potential-tag">potential · unchecked</span>
+                <span className="potential-tag">projected savings · range</span>
               </>
             ) : card.unitValue ? (
               <span className="potential-alt">{card.unitValue}</span>
@@ -68,9 +84,16 @@ export function FlipCard({
         </div>
 
         {/* ---------------- BACK ---------------- */}
-        <div className="face back" onClick={onFlip}>
+        <div
+          className="face back"
+          onClick={onFlip}
+          onKeyDown={onKey}
+          role="button"
+          tabIndex={0}
+          aria-label={`Evidence for ${card.title}. Press Enter to flip back.`}
+        >
           <div className="back-top">
-            <span className="suit-glyph" style={{ color: suit.color }}>
+            <span className="corner-glyph" style={{ color: suit.color }}>
               {suit.glyph}
             </span>
             <span className="card-title">{card.title}</span>
@@ -103,7 +126,7 @@ export function FlipCard({
           )}
           <div className="back-actions" onClick={(e) => e.stopPropagation()}>
             <button className={`btn ${selected ? 'btn-remove' : 'btn-add'}`} onClick={onToggle}>
-              {selected ? 'Remove from plan' : 'Include in plan'}
+              {selected ? 'Fold — remove from hand' : 'Play — add to hand'}
             </button>
             <button className="btn btn-ghost" onClick={onEvidence}>
               Evidence

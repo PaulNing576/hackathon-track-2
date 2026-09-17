@@ -10,6 +10,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': 'http://localhost:3001',
+      // the 3D city skyline (huiyuan-city), served as a static asset by the
+      // same Express server -- proxied here too so the in-app iframe
+      // (src/components/CitySkyline3D.tsx) resolves in dev the same way it
+      // does in production, where one server serves everything on one port.
+      '/city': 'http://localhost:3001',
     },
   },
   build: { outDir: 'dist/client' },

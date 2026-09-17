@@ -1,4 +1,6 @@
-// The Copilot panel — advisory only. Never selects, never executes.
+// The Dealer — advisory only, never selects, never executes. Presentation
+// layer only: the facts themselves come unchanged from shared/copilot.ts's
+// copilotBullets(), the same deterministic function as before this redesign.
 import { useMemo } from 'react';
 import { copilotBullets } from '../../shared/copilot';
 import { useApp } from '../state';
@@ -11,21 +13,22 @@ export function Copilot() {
   );
 
   return (
-    <aside className="panel copilot-panel" aria-label="Copilot">
-      <div className="copilot-head">
-        <span className="copilot-dot" />
-        <span className="copilot-title">Copilot</span>
-        <span className="copilot-badge">advisory</span>
+    <aside className="panel dealer-panel" aria-label="The Dealer, AI advisory">
+      <div className="dealer-head">
+        <span className="dealer-dot" />
+        <span className="dealer-title">The Dealer</span>
+        <span className="dealer-badge">AI advisory</span>
       </div>
-      <div className="copilot-bullets">
+      <div className="dealer-sub">Reads your hand. Never plays it for you.</div>
+      <div className="dealer-notes">
         {bullets.map((b, i) => (
-          <div key={i} className={`bullet bullet-${b.topic}`}>
+          <div key={i} className={`dealer-note dealer-note-${b.topic}`}>
             {b.text}
           </div>
         ))}
-        {bullets.length === 0 && <div className="bullet">Reading the deck…</div>}
+        {bullets.length === 0 && <div className="dealer-note">Reading the table…</div>}
       </div>
-      <div className="copilot-foot">Analysis only — the final decision is yours.</div>
+      <div className="dealer-foot">Advisory only — the final decision is yours.</div>
     </aside>
   );
 }

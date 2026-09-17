@@ -30874,6 +30874,7 @@ async function loadModel() {
   const jobById = /* @__PURE__ */ new Map();
   const jobsByUser = /* @__PURE__ */ new Map();
   const usersByNode = /* @__PURE__ */ new Map();
+  const jobsByNode = /* @__PURE__ */ new Map();
   const userCap = /* @__PURE__ */ new Map();
   const nodeCap = /* @__PURE__ */ new Map();
   const arrayCap = /* @__PURE__ */ new Map();
@@ -30895,6 +30896,7 @@ async function loadModel() {
     userCap.set(u, (userCap.get(u) ?? 0) + row.gpu_hours);
     if (row.primary_node) {
       (usersByNode.get(row.primary_node) ?? usersByNode.set(row.primary_node, /* @__PURE__ */ new Set()).get(row.primary_node)).add(u);
+      (jobsByNode.get(row.primary_node) ?? jobsByNode.set(row.primary_node, []).get(row.primary_node)).push(row);
       nodeCap.set(row.primary_node, (nodeCap.get(row.primary_node) ?? 0) + row.gpu_hours);
     }
     if (row.id_array_job != null) {
@@ -31011,6 +31013,7 @@ async function loadModel() {
     jobById,
     caps,
     usersByNode,
+    jobsByNode,
     jobsByUser,
     namespaceIdOfUser,
     resourceNameOf: resourceIdToName,
@@ -31473,6 +31476,43 @@ function adjustSelection(model, cards, selectedIds, usdPerGpuHour, queueTotalHou
       kindAdj.set(k, (kindAdj.get(k) ?? 0) + (raw > 0 ? adj * (r.hours / raw) : 0));
     }
   }
+  const jobClaim = /* @__PURE__ */ new Map();
+  let arrayAdj = 0;
+  for (const [key, rs] of byKey) {
+    const raw = rs.reduce((s, r) => s + r.hours, 0);
+    const cap = model.caps.get(key);
+    const adj = cap != null ? Math.min(raw, cap) : raw;
+    const target = key.slice(0, key.indexOf(":"));
+    if (target === "job") {
+      const jobId = Number(key.slice(4));
+      if (Number.isFinite(jobId)) jobClaim.set(jobId, (jobClaim.get(jobId) ?? 0) + adj);
+      else arrayAdj += adj;
+    } else if (target === "node") {
+      const jobs = model.jobsByNode.get(key.slice(5));
+      const total = (jobs ?? []).reduce((s, j) => s + j.gpu_hours, 0);
+      if (jobs && total > 0) for (const j of jobs) jobClaim.set(j.id_job, (jobClaim.get(j.id_job) ?? 0) + adj * (j.gpu_hours / total));
+      else arrayAdj += adj;
+    } else if (target === "user") {
+      const uid = Number(key.slice(5).replace(/^u-/, ""));
+      const jobs = Number.isFinite(uid) ? model.jobsByUser.get(uid) : void 0;
+      const total = (jobs ?? []).reduce((s, j) => s + j.gpu_hours, 0);
+      if (jobs && total > 0) for (const j of jobs) jobClaim.set(j.id_job, (jobClaim.get(j.id_job) ?? 0) + adj * (j.gpu_hours / total));
+      else arrayAdj += adj;
+    } else {
+      arrayAdj += adj;
+    }
+  }
+  const jobGrain = (() => {
+    let sum = arrayAdj;
+    for (const [jobId, claim] of jobClaim) {
+      const jcap = model.jobById.get(jobId)?.gpu_hours ?? claim;
+      sum += Math.min(claim, jcap);
+    }
+    return sum;
+  })();
+  const scale = adjustedHours > 0 ? jobGrain / adjustedHours : 1;
+  adjustedHours = jobGrain;
+  for (const [k, v] of kindAdj) kindAdj.set(k, v * scale);
   const kindMix = [...kindAdj.entries()].map(([kind, hours]) => ({ kind, gpuHours: Math.round(hours), share: adjustedHours ? hours / adjustedHours : 0 })).sort((a, b) => b.gpuHours - a.gpuHours);
   const rangeFor = (hoursByKind) => {
     let low = 0;

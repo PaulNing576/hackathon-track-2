@@ -74,6 +74,8 @@ export interface LoadedModel {
   caps: Map<string, number>;
   /** node -> users that ran on it (for node-scope findings) */
   usersByNode: Map<string, Set<string>>;
+  /** node -> jobs that ran on it (cross-scope reconciliation) */
+  jobsByNode: Map<string, JobRow[]>;
   /** user -> jobs that ran on it */
   jobsByUser: Map<number, JobRow[]>;
   namespaceIdOfUser: Map<string, string>; // 'u-<n>' -> resource id
@@ -106,6 +108,7 @@ export async function loadModel(): Promise<LoadedModel> {
   const jobById = new Map<number, JobRow>();
   const jobsByUser = new Map<number, JobRow[]>();
   const usersByNode = new Map<string, Set<string>>();
+  const jobsByNode = new Map<string, JobRow[]>();
   const userCap = new Map<string, number>(); // 'u-<n>' -> total gpu_hours
   const nodeCap = new Map<string, number>(); // node -> total gpu_hours
   const arrayCap = new Map<number, number>(); // id_array_job -> total gpu_hours
@@ -128,6 +131,7 @@ export async function loadModel(): Promise<LoadedModel> {
     userCap.set(u, (userCap.get(u) ?? 0) + row.gpu_hours);
     if (row.primary_node) {
       (usersByNode.get(row.primary_node) ?? usersByNode.set(row.primary_node, new Set()).get(row.primary_node)!).add(u);
+      (jobsByNode.get(row.primary_node) ?? jobsByNode.set(row.primary_node, []).get(row.primary_node)!).push(row);
       nodeCap.set(row.primary_node, (nodeCap.get(row.primary_node) ?? 0) + row.gpu_hours);
     }
     if (row.id_array_job != null) {
@@ -244,6 +248,7 @@ export async function loadModel(): Promise<LoadedModel> {
     jobById,
     caps,
     usersByNode,
+    jobsByNode,
     jobsByUser,
     namespaceIdOfUser,
     resourceNameOf: resourceIdToName,

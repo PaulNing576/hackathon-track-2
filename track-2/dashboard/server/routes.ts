@@ -8,7 +8,9 @@ import { buildDeck, type RuleInfo } from './model/deck';
 import { adjustSelection } from './model/overlap';
 import { buildTeams } from './model/teams';
 import { DEFAULT_PRICE_BOOK } from './model/catalog';
-import type { HttpTransport } from './analysis/transport';
+import type { AnalysisTransport } from './analysis/transport';
+import { buildAiFindings } from './analysis/findings';
+import { AI_FINDINGS_JSON_SCHEMA } from './analysis/schemas';
 import { adjustResponseToSelectionAdjustment, decisionEngineClient } from './decisionEngine';
 
 export interface AppServices {
@@ -17,7 +19,7 @@ export interface AppServices {
   context: ContextData;
   rules: RuleInfo[];
   price: { usd_per_gpu_hour: number; usd_per_engineer_hour: number };
-  transport: { name: string };
+  transport: AnalysisTransport;
   mgaiUrl: string;
   /** 'decision-engine' when track-2/decision_engine/service.py answered at
    *  startup; 'fallback' when it was unreachable and `deck` was built
@@ -173,6 +175,21 @@ export function buildRouter(s: AppServices): Router {
 
   router.get('/context', (_req, res) => {
     res.json(s.context);
+  });
+
+  router.get('/analysis/schema', (_req, res) => {
+    res.json(AI_FINDINGS_JSON_SCHEMA);
+  });
+
+  router.get('/analysis/findings', async (req, res) => {
+    const detectorId = typeof req.query.detectorId === 'string' ? req.query.detectorId : undefined;
+    const rawLimit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+    const limit = rawLimit != null && Number.isFinite(rawLimit) ? rawLimit : undefined;
+    try {
+      res.json(await buildAiFindings(s.model, s.transport, { detectorId, limit }));
+    } catch (err) {
+      res.status(502).json({ error: 'analysis transport failed', detail: String(err) });
+    }
   });
 
   // ---- official API proxy: everything under /api/mgai/* forwards to MGAI_URL
